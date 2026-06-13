@@ -1,0 +1,24 @@
+# Python Virtual Environments
+venv/
+env/
+.env
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data & Output Files (Do not commit large datasets)
+candidates.jsonl
+*.jsonl
+*.jsonl.gz
+team_redrob.csv
+submission.csv
+ranking_output.txt
+
+# Keep config files
+!rubric_config.json
+!candidate_schema.json
+!sample_candidates.json
+
+# OS specific
+.DS_Store
+Thumbs.db

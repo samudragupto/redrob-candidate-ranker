@@ -1,0 +1,58 @@
+# Redrob Hackathon — Submission Metadata
+team_name: "team_redrob"
+
+primary_contact:
+  name: "Arrhat Nag"
+  email: "arrhatnag1@gmail.com"
+  phone: "+91-7602704248"
+
+team_members:
+  - name: "Arrhat Nag"
+    email: "arrhatnag1@gmail.com"
+    role: "Undergraduate Student"
+
+# ============================================================================
+# Code and reproducibility
+# ============================================================================
+github_repo: "https://github.com/samudragupto/redrob-candidate-ranker"
+sandbox_link: "https://huggingface.co/spaces/samudragupto/redrob-ranker"
+reproduce_command: "python rank.py --candidates ./candidates.jsonl --out ./team_redrob.csv"
+
+# ============================================================================
+# Compute environment
+# ============================================================================
+compute:
+  platform: "Local Laptop (AMD Ryzen 7 7840HS, RTX 4060)"
+  cpu_cores: 8
+  ram_gb: 16
+  python_version: "3.13.1"
+  os: "Windows 11"
+  uses_gpu_for_inference: false
+  has_network_during_ranking: false
+  pre_computation_required: false
+  pre_computation_time_minutes: 0
+
+# ============================================================================
+# AI tools declaration
+# ============================================================================
+ai_tools_used:
+  - "Gemini"
+
+ai_usage_summary: |
+  Used Gemini for architectural discussion, drafting scoring logic, and refactoring the rule execution engine into native Python for maximum speed. No candidate data was sent to any external APIs during ranking.
+
+# ============================================================================
+# Approach summary
+# ============================================================================
+methodology_summary: |
+  A rule-based ranking engine utilizing a 5-dimension weighted scoring rubric and strict additive honeypot anomaly defense checks (e.g., career tenure exceeding age). The system features a deterministic template assembler mapping candidate rank bands to JD-aligned justifications and real notice period/location concerns. Optimized with pure native Python logic to achieve extreme CPU performance, filtering and scoring 100,000 candidates in under 10 seconds with zero pre-computation and zero network dependency.
+
+# ============================================================================
+# Declarations
+# ============================================================================
+declarations:
+  read_submission_spec: true
+  code_is_original_work: true
+  no_collusion: true
+  honeypot_check_done: true
+  reproduction_tested: true

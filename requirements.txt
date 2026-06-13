@@ -1,0 +1,12 @@
+# ==========================================
+# Redrob Ranking Engine Dependencies
+# ==========================================
+# Note to Reviewers: The core ranker (rank.py) uses 
+# ONLY the Python Standard Library to ensure ultra-fast 
+# execution (< 10 seconds) on CPU.
+# 
+# The dependency below is strictly for deploying the 
+# Stage 1 Sandbox UI via Streamlit Cloud.
+# ==========================================
+
+streamlit>=1.32.0
