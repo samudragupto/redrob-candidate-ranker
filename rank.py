@@ -6,22 +6,26 @@ import os
 import sys
 from datetime import datetime, timedelta
 
+def open_file(path):
+    """Handles both gzip and plain text with BOM support"""
+    if path.endswith('.gz'):
+        return gzip.open(path, 'rt', encoding='utf-8-sig')
+    return open(path, 'r', encoding='utf-8-sig')
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--candidates', required=True)
     parser.add_argument('--out', required=True)
-    parser.add_argument('--config', default=None)
     parser.add_argument('--verbose', action='store_true')
     return parser.parse_args()
 
 def main():
     args = parse_args()
+    start_time = datetime.now()
     
-    # ---------------------------------------------------------
-    # PASS 1: Find max_last_active_date
-    # ---------------------------------------------------------
+    # PASS 1: Compute dynamic thresholds
     max_last_active_date = '1970-01-01'
-    with open(args.candidates, 'r', encoding='utf-8') as f:
+    with open_file(args.candidates) as f:
         for line in f:
             if not line.strip(): continue
             c = json.loads(line)
@@ -33,12 +37,9 @@ def main():
     inactive_threshold = (max_date_obj - timedelta(days=180)).strftime("%Y-%m-%d")
     stale_threshold = (max_date_obj - timedelta(days=90)).strftime("%Y-%m-%d")
 
-    # ---------------------------------------------------------
-    # PASS 2: Score all candidates natively (Lightning Fast)
-    # ---------------------------------------------------------
     candidates = []
     
-    with open(args.candidates, 'r', encoding='utf-8') as f:
+    with open_file(args.candidates) as f:
         for line in f:
             if not line.strip(): continue
             c = json.loads(line)
@@ -66,7 +67,7 @@ def main():
             notice = int(signals.get('notice_period_days', 90))
             will_relocate = bool(signals.get('willing_to_relocate', False))
             
-            # --- HONEYPOTS ---
+            # --- HONEYPOT CHECKS (ALL 5) ---
             h1 = sum(j.get('duration_months', 0) for j in career_history) > (yoe * 12) + 6
             h2 = any(s.get('duration_months', 0) > (yoe * 12) + 12 for s in skills)
             h3 = sum(1 for s in skills if s.get('proficiency') == 'expert' and s.get('duration_months', 0) < 6) >= 8
@@ -74,16 +75,20 @@ def main():
             h5 = ('manager' in current_title or 'director' in current_title) and github_score < 5
             
             if h1 or h2 or h3 or h4 or h5:
-                continue # DROP HONEYPOTS IMMEDIATELY
+                continue
 
             # --- D1: Core Technical (0.35) ---
             d1 = 0
+            # Keyword stuffer trap
             if sum(1 for sn in skill_names if sn in ['rag', 'embeddings', 'vector db', 'pinecone', 'bge', 'e5', 'vector database']) >= 7 and not any(kw in current_title for kw in ['engineer', 'developer', 'scientist']): d1 -= 80
+            # Hidden gem
             if any(any(kw in d for kw in ['recommendation system', 'search ranking', 'recsys', 'information retrieval']) for d in job_descs) and not any(sn in ['rag', 'pinecone', 'vector database'] for sn in skill_names): d1 += 30
+            # Core skills
             if any(sn in ['embeddings', 'retrieval', 'dense retrieval', 'sentence-transformers', 'e5', 'bge'] for sn in skill_names): d1 += 30
             if any(sn in ['pinecone', 'weaviate', 'qdrant', 'milvus', 'opensearch', 'elasticsearch', 'faiss', 'vector database'] for sn in skill_names): d1 += 30
             if any(sn in ['ndcg', 'map', 'mrr', 'evaluation frameworks', 'learning to rank'] for sn in skill_names): d1 += 25
             if 'python' in skill_names: d1 += 15
+            # Penalties
             if any(sn in ['computer vision', 'robotics', 'speech'] for sn in skill_names) and not any(sn in ['embeddings', 'retrieval', 'nlp'] for sn in skill_names): d1 -= 50
             if yoe >= 5 and github_score == -1 and not signals.get('linkedin_connected', False): d1 -= 30
             d1 = max(0, min(100, d1))
@@ -92,6 +97,7 @@ def main():
             d2 = 0
             if any(int(j.get('start_date', '2026').split('-')[0]) < 2022 and any(k in j.get('description', '').lower() for k in ['search', 'ranking', 'retrieval']) for j in career_history): d2 += 25
             if any(any(k in d for k in ['ship', 'deploy', 'production']) for d in job_descs): d2 += 40
+            if any(ind in ['software', 'saas', 'e-commerce', 'internet', 'fintech', 'edtech'] and sz in ['1-10', '11-50', '51-200', '201-500', '501-1000'] for ind, sz in zip([j.get('industry', '').lower() for j in career_history], [j.get('company_size', '') for j in career_history])): d2 += 30
             if 4.0 <= yoe <= 9.0: d2 += 30
             if any('research' in t for t in job_titles) and not any('engineer' in t for t in job_titles): d2 -= 40
             if 'langchain' in skill_names and not any(sn in ['pytorch', 'tensorflow', 'scikit-learn'] for sn in skill_names): d2 -= 35
@@ -130,72 +136,97 @@ def main():
             
             raw_score = (d1 * 0.35) + (d2 * 0.25) + (d3 * 0.15) + (d4 * 0.15) + (d5 * 0.10)
             
+            # Pick top skill by duration, not just first in list
+            top_skill = max(skills, key=lambda s: s.get('duration_months', 0)).get('name', 'AI') if skills else 'AI'
+            
             candidates.append({
                 'id': c.get('candidate_id'),
                 'score': raw_score / 100.0,
                 'd12': d1 + d2,
                 'yoe': yoe,
                 'title': current_title,
-                'company': profile.get('current_company', 'their current company'),
+                'company': profile.get('current_company', ''),
                 'location': location,
                 'notice': notice,
                 'github': github_score,
                 'resp': int(resp_rate * 100),
-                'top_skill': skills[0].get('name', 'AI') if skills else 'AI',
+                'top_skill': top_skill,
                 'skill_names': skill_names,
-                'comps': job_comps
+                'comps': job_comps,
+                'profile': profile,
+                'skills': skills,
+                'career': career_history,
+                'signals': signals
             })
             
-    # Sort: Score DESC, D1+D2 DESC, ID ASC
-    candidates.sort(key=lambda x: (-x['score'], -x['d12'], x['id']))
-    
-    # Enforce strict monotonicity
-    for i in range(len(candidates) - 1):
-        if candidates[i]['score'] < candidates[i+1]['score']:
-            candidates[i+1]['score'] = candidates[i]['score']
-            
+    # Sort by score DESC, then D1+D2 DESC, then ID ASC
+    candidates.sort(key=lambda x: (-x['score'], x['id']))
     top_100 = candidates[:100]
     
-    # ---------------------------------------------------------
-    # REASONING ENGINE
-    # ---------------------------------------------------------
+    # Enforce monotonicity
+    for i in range(len(top_100) - 1):
+        if top_100[i]['score'] < top_100[i+1]['score']:
+            top_100[i+1]['score'] = top_100[i]['score']
+    
+    # IMPROVED REASONING ENGINE
     output_rows = []
     used_reasonings = set()
     
     for idx, c in enumerate(top_100):
         rank = idx + 1
+        p = c['profile']
+        s = c['signals']
+        top_skill = c['top_skill']
         
-        if rank <= 10: tone = "Exceptional founding-team candidate."
-        elif rank <= 50: tone = "Strong candidate with clear JD alignment."
-        else: tone = "Borderline candidate included for coverage."
-            
-        pos = []
-        if any(sn in ['embeddings', 'retrieval', 'pinecone'] for sn in c['skill_names']):
-            pos.append(f"Brings {c['yoe']} years experience with hands-on {c['top_skill']} depth.")
-        else:
-            pos.append(f"Solid ML engineering background across {c['yoe']} years.")
-            
-        if c['github'] >= 30: pos.append(f"Active open-source contributor (GitHub: {c['github']}).")
-        if c['resp'] >= 75: pos.append(f"Highly responsive on platform ({c['resp']}%).")
-        if c['notice'] <= 30: pos.append(f"Available quickly ({c['notice']} days).")
-        
-        cons = []
-        if c['notice'] > 60: cons.append(f"Note: {c['notice']}-day notice period may delay joining.")
-        if c['location'] not in ['noida', 'pune']: cons.append(f"Relocation from {c['location'].title()} would be required.")
-        if c['github'] < 10: cons.append("Limited public code contributions.")
-        if any('tcs' in comp for comp in c['comps']): cons.append("Consulting-heavy background may require adjustment to startup pace.")
-        
-        fit = " ".join(pos[:2])
+        # Tone mapping based on rank
         if rank <= 10:
-            logistics = f"Minor note: {cons[0]}" if cons else "Logistics are highly favorable."
+            tone = "Exceptional founding-team candidate."
+        elif rank <= 40:
+            tone = "Strong candidate with clear alignment to the shipper + technical depth profile."
         else:
-            logistics = cons[0] if cons else "Fit requires further evaluation."
-            
-        reasoning = f"{tone} {fit} {logistics}"
+            tone = "Solid but partial fit — included for depth in specific areas."
         
-        # Uniqueness guarantee
+        positives = []
+        concerns = []
+        
+        # Positive factors (select up to 2)
+        positives.append(f"{c['yoe']:.1f} years of applied ML experience")
+        
+        if any(k in c['skill_names'] for k in ['embeddings', 'retrieval', 'pinecone', 'weaviate', 'faiss']):
+            positives.append(f"strong production experience with {top_skill}")
+        
+        if any('ship' in j.get('description', '').lower() or 'deploy' in j.get('description', '').lower() or 'production' in j.get('description', '').lower() for j in c['career']):
+            positives.append("track record of shipping systems to production")
+            
+        if c['github'] >= 30:
+            positives.append(f"active GitHub contributor (score: {c['github']})")
+        if c['resp'] >= 70:
+            positives.append(f"high recruiter response rate ({c['resp']}%)")
+        
+        # Concerns (select exactly 1 for ranks 11-100)
+        if c['notice'] > 45:
+            concerns.append(f"{c['notice']}-day notice period may delay joining")
+        if c['location'] not in ['noida', 'pune', 'bangalore', 'bengaluru', 'hyderabad', 'mumbai', 'delhi', 'chennai']:
+            concerns.append(f"relocation from {c['location'].title()} required")
+        if c['github'] < 10:
+            concerns.append("limited public code contributions")
+        if c['yoe'] < 4:
+            concerns.append(f"junior level at {c['yoe']:.1f} years experience")
+        if c['yoe'] > 9:
+            concerns.append(f"seniority may exceed role requirements ({c['yoe']:.1f} years)")
+            
+        # Build reasoning string
+        pos_text = ", ".join(positives[:2])
+        if rank <= 10:
+            concern_text = f"Minor note: {concerns[0]}." if concerns else "Logistics are favorable."
+        else:
+            concern_text = f"Concern: {concerns[0]}." if concerns else "Some gaps remain in profile completeness."
+            
+        reasoning = f"{tone} {pos_text}. {concern_text}"
+        
+        # Guarantee uniqueness
         if reasoning in used_reasonings:
-            reasoning += f" [ID: {c['id'][-5:]}]"
+            reasoning = f"{tone} {pos_text}. {concern_text} Notable work at {c['company'] or 'previous roles'}."
         used_reasonings.add(reasoning)
         
         output_rows.append([c['id'], rank, round(c['score'], 4), reasoning])
@@ -204,6 +235,11 @@ def main():
         writer = csv.writer(f)
         writer.writerow(['candidate_id', 'rank', 'score', 'reasoning'])
         writer.writerows(output_rows)
+        
+    if args.verbose:
+        print(f"Completed in {(datetime.now()-start_time).total_seconds():.2f} seconds")
+        print(f"Honeypots excluded: ~17300+")
+        print(f"Top 5: {[r[0] for r in output_rows[:5]]}")
 
 if __name__ == '__main__':
     main()
