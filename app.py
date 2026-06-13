@@ -2,45 +2,47 @@ import streamlit as st
 import subprocess
 import tempfile
 import os
+import sys
 
-st.set_page_config(page_title="Redrob Ranker", page_icon="🏆")
+st.set_page_config(page_title="Redrob Ranker", layout="wide")
+st.title("🚀 Redrob Candidate Ranking Engine")
+st.write("Upload a `.jsonl` or `.jsonl.gz` file to test the 5-dimension CPU ranking engine.")
 
-st.title("Redrob Candidate Ranker")
-st.markdown("Upload a `candidates.jsonl` file to test the 5-dimension CPU ranking engine.")
+# Increase upload limit for this session
+st.config.set_option('server.maxUploadSize', 500)
 
-uploaded_file = st.file_uploader("Upload candidates.jsonl", type=['jsonl'])
+uploaded_file = st.file_uploader("Upload candidates file", type=['jsonl', 'gz', 'json'])
 
 if uploaded_file is not None:
-    # Save uploaded file to temporary location
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.jsonl') as tmp_in:
-        tmp_in.write(uploaded_file.getvalue())
-        tmp_in_path = tmp_in.name
-    
-    tmp_out_path = tempfile.mktemp(suffix='.csv')
-    
-    if st.button("Run Fast Ranker (CPU)"):
-        with st.spinner("Scoring candidates and generating reasoning..."):
-            # Run your rank.py script
-            subprocess.run(['python', 'rank.py', '--candidates', tmp_in_path, '--out', tmp_out_path])
+    if st.button("Run Ranking Engine"):
+        with st.spinner("Processing candidates..."):
+            # Use NamedTemporaryFile for safe Docker permissions
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.jsonl') as tmp_in:
+                tmp_in.write(uploaded_file.getvalue())
+                tmp_in_path = tmp_in.name
             
-            # Read the output CSV
-            if os.path.exists(tmp_out_path):
-                with open(tmp_out_path, 'r', encoding='utf-8') as f:
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp_out:
+                tmp_out_path = tmp_out.name
+            
+            # CRITICAL FIX: Use sys.executable instead of 'python' for Docker environments
+            result = subprocess.run(
+                [sys.executable, 'rank.py', '--candidates', tmp_in_path, '--out', tmp_out_path],
+                capture_output=True, text=True
+            )
+            
+            # Check if it succeeded
+            if result.returncode == 0 and os.path.exists(tmp_out_path) and os.path.getsize(tmp_out_path) > 0:
+                with open(tmp_out_path, 'r') as f:
                     csv_data = f.read()
-                    
-                st.success("Ranking complete! Zero honeypots detected.")
-                st.download_button(
-                    label="⬇️ Download team_redrob.csv", 
-                    data=csv_data, 
-                    file_name="team_redrob.csv", 
-                    mime="text/csv"
-                )
+                st.success("Ranking complete! Honeypots excluded. Monotonicity enforced.")
+                st.download_button("Download submission.csv", csv_data, "submission.csv", "text/csv")
             else:
-                st.error("Error generating ranking.")
+                st.error("Error generating ranking. See debug logs below:")
+                st.text("STDOUT:")
+                st.code(result.stdout)
+                st.text("STDERR (The actual error):")
+                st.code(result.stderr)
             
-        # Cleanup temp files
-        try:
-            os.unlink(tmp_in_path)
-            os.unlink(tmp_out_path)
-        except:
-            pass
+            # Cleanup
+            if os.path.exists(tmp_in_path): os.unlink(tmp_in_path)
+            if os.path.exists(tmp_out_path): os.unlink(tmp_out_path)
