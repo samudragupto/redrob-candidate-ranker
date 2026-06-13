@@ -128,8 +128,16 @@ def main():
             
             # --- D5: Logistical (0.10) ---
             d5 = 0
-            if location in ['noida', 'pune']: d5 += 50
-            elif location in ['bangalore', 'bengaluru', 'hyderabad', 'mumbai', 'delhi', 'chennai'] and will_relocate: d5 += 30
+            
+            
+            if any(city in location for city in ['noida', 'pune']):
+                d5 += 50
+            elif any(city in location for city in ['bangalore', 'bengaluru', 'hyderabad', 'mumbai', 'delhi', 'gurgaon', 'gurugram', 'chennai']) and will_relocate:
+                d5 += 30            
+            
+            
+            
+            
             if notice <= 30: d5 += 30
             if country != 'india': d5 -= 50
             d5 = max(0, min(100, d5))
@@ -206,8 +214,21 @@ def main():
         # Concerns (select exactly 1 for ranks 11-100)
         if c['notice'] > 45:
             concerns.append(f"{c['notice']}-day notice period may delay joining")
-        if c['location'] not in ['noida', 'pune', 'bangalore', 'bengaluru', 'hyderabad', 'mumbai', 'delhi', 'chennai']:
+
+
+        loc = c['location'].lower()
+        preferred_or_tier1 = any(city in loc for city in [
+            'noida', 'pune', 'bangalore', 'bengaluru', 'hyderabad',
+            'mumbai', 'delhi', 'gurgaon', 'gurugram', 'chennai'
+        ])
+
+        if not preferred_or_tier1:
             concerns.append(f"relocation from {c['location'].title()} required")
+
+
+
+
+
         if c['github'] < 10:
             concerns.append("limited public code contributions")
         if c['yoe'] < 4:
